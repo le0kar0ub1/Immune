@@ -1,7 +1,9 @@
 logs
 models
+!src/Immune/models
 reports
 data
+!src/Immune/data
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
