@@ -1,0 +1,23 @@
+# Ruff configuration for myarkema-antivirus
+line-length = 100
+target-version = "py312"
+
+[lint]
+# Enable common linting rules
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+]
+
+# Ignore some rules that are too strict for existing code
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+# Exclude test files from some rules
+[lint.per-file-ignores]
+"tests/*" = ["B011"]  # Don't require assert messages in tests 
