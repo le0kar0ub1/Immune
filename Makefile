@@ -9,8 +9,14 @@ scrap:
 fetch-sorel:
 	python src/Immune/data/fetch_sorel20M.py
 
-features:
-	python src/features.py -im data/malware -ib data/benign --output=data/features.json -e .bin
+process-assemblage:
+	python src/Immune/data/process_assemblage.py
+
+features-extraction:
+	python src/features.py -im data/sorel20M -ib data/assemblagePE --output=data/features.json
+
+features-input-layer-building:
+	python src/Immune/data/process_features.py
 
 train:
 	python src/train.py

@@ -15,7 +15,7 @@ meta_db_s3_uri = "09-DEC-2020/processed-data/meta.db"
 
 sqlite_db_path = "data/sorel20M/meta.db"
 
-output_dir="data/sorel20M/binaries"
+output_dir="data/sorel20M"
 
 samples = {}
 
@@ -128,13 +128,13 @@ def download_sorel_binaries():
     for i, h in enumerate(keys):
       try:
         key = f"{s3_prefix}/{h}"
-        if os.path.exists(os.path.join(output_dir, os.path.basename(key))):
+        if os.path.exists(os.path.join(output_dir, "binaries", os.path.basename(key))):
             print(f"  Skipping {key} ({i+1}/{len(keys)}), already exists.")
             continue
         response = s3.get_object(Bucket=s3_bucket, Key=key)
         compressed_data = response["Body"].read()
         binary_data = zlib.decompress(compressed_data)
-        with open(os.path.join(output_dir, os.path.basename(key)), "wb") as f:
+        with open(os.path.join(output_dir, "binaries", os.path.basename(key)), "wb") as f:
           f.write(binary_data)
         print(f"  -> Downloaded {key} ({i+1}/{len(keys)})")
         if i % 100 == 0:

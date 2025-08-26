@@ -140,6 +140,47 @@ class PEFeatures:
             "number_of_imports": self.number_of_imports,
             "number_of_exports": self.number_of_exports,
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PEFeatures":
+        return cls(
+            size_of_code=data["size_of_code"],
+            size_of_initialized_data=data["size_of_initialized_data"],
+            size_of_uninitialized_data=data["size_of_uninitialized_data"],
+            address_of_entry_point=data["address_of_entry_point"],
+            base_of_code=data["base_of_code"],
+            base_of_data=data["base_of_data"],
+            image_base=data["image_base"],
+            section_alignment=data["section_alignment"],
+            file_alignment=data["file_alignment"],
+            major_os_version=data["major_os_version"],
+            minor_os_version=data["minor_os_version"],
+            major_image_version=data["major_image_version"],
+            minor_image_version=data["minor_image_version"],
+            major_subsystem_version=data["major_subsystem_version"],
+            minor_subsystem_version=data["minor_subsystem_version"],
+            size_of_image=data["size_of_image"],
+            size_of_headers=data["size_of_headers"],
+            checksum=data["checksum"],
+            subsystem=data["subsystem"],
+            dll_characteristics=data["dll_characteristics"],
+            size_of_stack_reserve=data["size_of_stack_reserve"],
+            size_of_stack_commit=data["size_of_stack_commit"],
+            size_of_heap_reserve=data["size_of_heap_reserve"],
+            size_of_heap_commit=data["size_of_heap_commit"],
+            loader_flags=data["loader_flags"],
+            number_of_rva_and_sizes=data["number_of_rva_and_sizes"],
+            number_of_sections=data["number_of_sections"],
+            total_section_size=data["total_section_size"],
+            max_section_size=data["max_section_size"],
+            min_section_size=data["min_section_size"],
+            avg_section_size=data["avg_section_size"],
+            executable_sections=data["executable_sections"],
+            writable_sections=data["writable_sections"],
+            suspicious_sections=data["suspicious_sections"],
+            number_of_imports=data["number_of_imports"],
+            number_of_exports=data["number_of_exports"],
+        )
 
     @classmethod
     def get_feature_names(cls) -> List[str]:
@@ -205,6 +246,12 @@ class ByteHistogramFeatures:
             "histogram": self.histogram.tolist(),
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ByteHistogramFeatures":
+        return cls(
+            histogram=np.array(data["histogram"], dtype=np.float32),
+        )
+
 
 @dataclass
 class EntropyFeatures:
@@ -214,7 +261,10 @@ class EntropyFeatures:
     overall_entropy: float
 
     # Entropy by sections (for PE files)
-    section_entropies: dict[str, float]
+    data_section_entropy: float
+    rodata_section_entropy: float
+    text_section_entropy: float
+
 
     # Entropy statistics
     min_section_entropy: float
@@ -233,7 +283,9 @@ class EntropyFeatures:
         """Convert to numpy array for model input."""
         features = [
             self.overall_entropy,
-            self.section_entropies,
+            self.data_section_entropy,
+            self.rodata_section_entropy,
+            self.text_section_entropy,
             self.min_section_entropy,
             self.max_section_entropy,
             self.avg_section_entropy,
@@ -249,7 +301,9 @@ class EntropyFeatures:
         """Get list of feature names in order."""
         return [
             "overall_entropy",
-            "section_entropies",
+            "data_section_entropy",
+            "rodata_section_entropy",
+            "text_section_entropy",
             "min_section_entropy",
             "max_section_entropy",
             "avg_section_entropy",
@@ -262,7 +316,9 @@ class EntropyFeatures:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "overall_entropy": self.overall_entropy,
-            # "section_entropies": self.section_entropies,
+            "data_section_entropy": self.data_section_entropy,
+            "rodata_section_entropy": self.rodata_section_entropy,
+            "text_section_entropy": self.text_section_entropy,
             "min_section_entropy": self.min_section_entropy,
             "max_section_entropy": self.max_section_entropy,
             "avg_section_entropy": self.avg_section_entropy,
@@ -271,6 +327,22 @@ class EntropyFeatures:
             "low_entropy_sections": self.low_entropy_sections,
             "entropy_variance": self.entropy_variance,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EntropyFeatures":
+        return cls(
+            overall_entropy=data["overall_entropy"],
+            data_section_entropy=data["data_section_entropy"],
+            rodata_section_entropy=data["rodata_section_entropy"],
+            text_section_entropy=data["text_section_entropy"],
+            min_section_entropy=data["min_section_entropy"],
+            max_section_entropy=data["max_section_entropy"],
+            avg_section_entropy=data["avg_section_entropy"],
+            std_section_entropy=data["std_section_entropy"],
+            high_entropy_sections=data["high_entropy_sections"],
+            low_entropy_sections=data["low_entropy_sections"],
+            entropy_variance=data["entropy_variance"],
+        )
 
 
 @dataclass
@@ -381,6 +453,23 @@ class APIFeatures:
             "max_string_length": self.max_string_length,
             "min_string_length": self.min_string_length,
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "APIFeatures":
+        return cls(
+            file_apis=data["file_apis"],
+            registry_apis=data["registry_apis"],
+            network_apis=data["network_apis"],
+            process_apis=data["process_apis"],
+            memory_apis=data["memory_apis"],
+            system_apis=data["system_apis"],
+            crypto_apis=data["crypto_apis"],
+            anti_debug_apis=data["anti_debug_apis"],
+            total_strings=data["total_strings"],
+            avg_string_length=data["avg_string_length"],
+            max_string_length=data["max_string_length"],
+            min_string_length=data["min_string_length"],
+        )
 
     @classmethod
     def get_feature_names(cls) -> List[str]:
@@ -488,6 +577,16 @@ class BinaryFeatures:
             "entropy_features": self.entropy_features.to_dict(),
             "api_features": self.api_features.to_dict(),
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "BinaryFeatures":
+        return cls(
+            file_size=data["file_size"],
+            pe_features=PEFeatures.from_dict(data["pe_features"]),
+            byte_histogram=ByteHistogramFeatures.from_dict(data["byte_histogram"]),
+            entropy_features=EntropyFeatures.from_dict(data["entropy_features"]),
+            api_features=APIFeatures.from_dict(data["api_features"]),
+        )
 
     def get_feature_names(self) -> List[str]:
         """Get all feature names in order."""

@@ -2,11 +2,13 @@
 """Feature extraction script using the Immune package."""
 
 import argparse
+import concurrent.futures
 import json
 import logging
+import os
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 sys.path.append(str(Path(__file__).parent / "Immune"))
 
@@ -17,6 +19,37 @@ from Immune.features.models import BinaryFeatures
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+
+def save_features(input_dir: Path, features: Dict[str, BinaryFeatures]) -> None:
+    """Save features to file."""
+    logger.info(f"\nSaving features to {input_dir}\n")
+    with open(os.path.join(input_dir, "features.json"), "w") as f:
+        json.dump({file_path: feature.to_dict() for file_path, feature in features.items()}, f) #, indent=2)
+
+def load_features(input_dir: Path) -> Dict[str, BinaryFeatures]:
+    """Load features from file."""
+    if not os.path.exists(os.path.join(input_dir, "features.json")):
+        return {}
+    logger.info(f"\nLoading features from {input_dir}\n")
+    with open(os.path.join(input_dir, "features.json"), "r") as f:
+        return {file_path: BinaryFeatures.from_dict(feature) for file_path, feature in json.load(f).items()}
+
+def process_single_file(args):
+    """Process a single file - extracted to be thread-safe."""
+    file_path, is_malware, extractor, i, total_files = args
+    
+    try:
+        logger.info(f"Processing file {i}/{total_files}: {file_path.name}")
+        
+        # Extract features
+        current_features = extractor.extract_features(file_path, is_malware=is_malware)
+        
+        # Return success result
+        return file_path.name, current_features, True, None
+        
+    except Exception as e:
+        logger.error(f"Failed to extract features from {file_path.name}: {e}")
+        return file_path.name, None, False, str(e)
 
 def extract_features_from_directory(
     input_dir: Path,
@@ -36,11 +69,15 @@ def extract_features_from_directory(
     Returns:
         Tuple of (file_info_list, features_list)
     """
-    if not input_dir.exists():
+    binaries_dir = Path(os.path.join(input_dir, "binaries"))
+
+    if not binaries_dir.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
 
-    if not input_dir.is_dir():
-        raise ValueError(f"Input path is not a directory: {input_dir}")
+    if not binaries_dir.is_dir():
+        raise ValueError(f"Input path is not a directory: {binaries_dir}")
+
+    features = load_features(input_dir)
 
     # Initialize feature extractor
     extractor = FeatureExtractor()
@@ -49,11 +86,11 @@ def extract_features_from_directory(
     files_to_process = []
     if file_extensions:
         for ext in file_extensions:
-            files_to_process.extend(input_dir.glob(f"*{ext}"))
-            files_to_process.extend(input_dir.glob(f"*{ext.upper()}"))
+            files_to_process.extend(binaries_dir.glob(f"*{ext}"))
+            files_to_process.extend(binaries_dir.glob(f"*{ext.upper()}"))
     else:
         # Process all files
-        files_to_process = [f for f in input_dir.iterdir() if f.is_file()]
+        files_to_process = [f for f in binaries_dir.iterdir() if f.is_file()]
 
     # Remove duplicates and limit if specified
     files_to_process = list(set(files_to_process))
@@ -62,37 +99,43 @@ def extract_features_from_directory(
 
     logger.info(f"Found {len(files_to_process)} files to process")
 
-    # Process files and extract features
-    features_list = []
+    # Thread-safe counter for successful and failed extractions
     successful_extractions = 0
     failed_extractions = 0
-
+    
+    # Prepare arguments for threading
+    thread_args = []
     for i, file_path in enumerate(files_to_process, 1):
-        try:
-            logger.info(f"Processing file {i}/{len(files_to_process)}: {file_path.name}")
-
-            # Extract features
-            features = extractor.extract_features(file_path, is_malware=is_malware)
-
-            # Store file info
-            features_list.append(features)
-            successful_extractions += 1
-
-            logger.info(f"Successfully extracted features from {file_path.name}")
-
-        except Exception as e:
-            logger.error(f"Failed to extract features from {file_path.name}: {e}")
-
-            # Store failed file info
-            features = None
-            features_list.append(None)
-            failed_extractions += 1
+        if file_path.name in features:
+            logger.info(f"Skipping file {file_path.name} because it already exists")
+            continue
+            
+        thread_args.append((file_path, is_malware, extractor, i, len(files_to_process)))
+    
+    # Process files in parallel with 6 processes (utilizing multiple CPU cores)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=6) as executor:
+        # Submit all tasks
+        future_to_file = {executor.submit(process_single_file, args): args for args in thread_args}
+        
+        # Process completed tasks
+        for future in concurrent.futures.as_completed(future_to_file):
+            file_name, current_features, success, error = future.result()
+            
+            if success:
+                features[file_name] = current_features
+                successful_extractions += 1
+                logger.info(f"Successfully extracted features from {file_name}")
+                
+                if successful_extractions % 200 == 0:
+                    save_features(input_dir, features)
+            else:
+                failed_extractions += 1
 
     logger.info(
         f"Feature extraction completed: {successful_extractions} successful, {failed_extractions} failed"
     )
-
-    return features_list
+    save_features(input_dir, features)
+    return features
 
 
 def save_results(features_list: List[BinaryFeatures], output_file: Path) -> None:
@@ -125,14 +168,14 @@ def main():
         "--input_dir_malware",
         type=Path,
         help="Directory containing malware files to analyze",
-        default="data/malware",
+        default="data/sorel20M",
     )
     parser.add_argument(
         "-ib",
         "--input_dir_benign",
         type=Path,
         help="Directory containing benign files to analyze",
-        default="data/benign",
+        default="data/assemblagePE",
     )
     parser.add_argument(
         "-o", "--output", type=Path, help="Output file to save results (JSON format)"
@@ -142,7 +185,7 @@ def main():
         "--extensions",
         nargs="+",
         help="File extensions to process (e.g., .exe .dll)",
-        default=".bin",
+        default=None,
     )
     parser.add_argument(
         "-m", "--max-files", type=int, help="Maximum number of files to process", default=None
@@ -174,11 +217,17 @@ def main():
             max_files=args.max_files,
         )
 
-        features_list = malware_features_list + benign_features_list
+        features_list = {}
+        feature_list.update(benign_feature_list)
+        malware_list.update(malware_feature_list)
 
-        logger.info(f"Saving results to {args.output}")
+        logger.info(f"Saving full results to {args.output}")
 
         save_results(features_list, args.output)
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=2, default=str)
+
+        logger.info(f"Full results saved to {args.output}")
 
         logger.info("Feature extraction summary:")
         logger.info(f"  Total files: {len(features_list)}")

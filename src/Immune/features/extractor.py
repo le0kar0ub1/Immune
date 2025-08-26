@@ -1,6 +1,7 @@
 """Simple feature extractor for malware detection."""
 
 import logging
+import re
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,11 @@ class FeatureExtractor:
         """Initialize the feature extractor."""
         pass
 
+    def __del__(self):
+        """Close the PE file."""
+        if hasattr(self, "pe"):
+            self.pe.close()
+
     def extract_features(self, file_path: Path, is_malware: bool) -> BinaryFeatures:
         """Extract all features from a binary file.
 
@@ -34,14 +40,17 @@ class FeatureExtractor:
 
         with open(file_path, "rb") as f:
             self.bdata = f.read()
+        
+        self.pe = pefile.PE(file_path)
+
         # Extract each feature type
-        logger.info(f"Extracting PE features from {file_path}")
+        logger.debug(f"Extracting PE features from {file_path}")
         pe_features = self._extract_pe_features(file_path)
-        logger.info(f"Extracting byte histogram from {file_path}")
+        logger.debug(f"Extracting byte histogram from {file_path}")
         byte_histogram = self._extract_byte_histogram(file_path)
-        logger.info(f"Extracting entropy features from {file_path}")
+        logger.debug(f"Extracting entropy features from {file_path}")
         entropy_features = self._extract_entropy_features(file_path)
-        logger.info(f"Extracting API features from {file_path}")
+        logger.debug(f"Extracting API features from {file_path}")
         api_features = self._extract_api_features(file_path)
 
         return BinaryFeatures(
@@ -56,15 +65,13 @@ class FeatureExtractor:
     def _extract_pe_features(self, file_path: Path) -> PEFeatures:
         """Extract PE file features."""
         try:
-            pe = pefile.PE(file_path)
-
             # Analyze all sections intelligently
             section_sizes = []
             executable_sections = 0
             writable_sections = 0
             suspicious_sections = 0
 
-            for section in pe.sections:
+            for section in self.pe.sections:
                 size = section.SizeOfRawData
                 section_sizes.append(size)
 
@@ -88,37 +95,37 @@ class FeatureExtractor:
 
             pe_features = PEFeatures(
                 # Basic PE characteristics
-                size_of_code=pe.OPTIONAL_HEADER.SizeOfCode,
-                size_of_initialized_data=pe.OPTIONAL_HEADER.SizeOfInitializedData,
-                size_of_uninitialized_data=pe.OPTIONAL_HEADER.SizeOfUninitializedData,
-                address_of_entry_point=pe.OPTIONAL_HEADER.AddressOfEntryPoint,
-                base_of_code=pe.OPTIONAL_HEADER.BaseOfCode,
-                base_of_data=pe.OPTIONAL_HEADER.BaseOfData,
-                image_base=pe.OPTIONAL_HEADER.ImageBase,
-                section_alignment=pe.OPTIONAL_HEADER.SectionAlignment,
-                file_alignment=pe.OPTIONAL_HEADER.FileAlignment,
+                size_of_code=getattr(self.pe.OPTIONAL_HEADER, "SizeOfCode", 0),
+                size_of_initialized_data=getattr(self.pe.OPTIONAL_HEADER, "SizeOfInitializedData", 0),
+                size_of_uninitialized_data=getattr(self.pe.OPTIONAL_HEADER, "SizeOfUninitializedData", 0),
+                address_of_entry_point=getattr(self.pe.OPTIONAL_HEADER, "AddressOfEntryPoint", 0),
+                base_of_code=getattr(self.pe.OPTIONAL_HEADER, "BaseOfData", 0),
+                base_of_data=getattr(self.pe.OPTIONAL_HEADER, "BaseOfData", 0),
+                image_base=getattr(self.pe.OPTIONAL_HEADER, "ImageBase", 0),
+                section_alignment=getattr(self.pe.OPTIONAL_HEADER, "SectionAlignment", 0),
+                file_alignment=getattr(self.pe.OPTIONAL_HEADER, "FileAlignment", 0),
                 # Version information
-                major_os_version=pe.OPTIONAL_HEADER.MajorOperatingSystemVersion,
-                minor_os_version=pe.OPTIONAL_HEADER.MinorOperatingSystemVersion,
-                major_image_version=pe.OPTIONAL_HEADER.MajorImageVersion,
-                minor_image_version=pe.OPTIONAL_HEADER.MinorImageVersion,
-                major_subsystem_version=pe.OPTIONAL_HEADER.MajorSubsystemVersion,
-                minor_subsystem_version=pe.OPTIONAL_HEADER.MinorSubsystemVersion,
+                major_os_version=getattr(self.pe.OPTIONAL_HEADER, "MajorOperatingSystemVersion", 0),
+                minor_os_version=getattr(self.pe.OPTIONAL_HEADER, "MinorOperatingSystemVersion", 0),
+                major_image_version=getattr(self.pe.OPTIONAL_HEADER, "MajorImageVersion", 0),
+                minor_image_version=getattr(self.pe.OPTIONAL_HEADER, "MinorImageVersion", 0),
+                major_subsystem_version=getattr(self.pe.OPTIONAL_HEADER, "MajorSubsystemVersion", 0),
+                minor_subsystem_version=getattr(self.pe.OPTIONAL_HEADER, "MinorSubsystemVersion", 0),
                 # Size information
-                size_of_image=pe.OPTIONAL_HEADER.SizeOfImage,
-                size_of_headers=pe.OPTIONAL_HEADER.SizeOfHeaders,
-                checksum=pe.OPTIONAL_HEADER.CheckSum,
-                subsystem=pe.OPTIONAL_HEADER.Subsystem,
-                dll_characteristics=pe.OPTIONAL_HEADER.DllCharacteristics,
+                size_of_image=getattr(self.pe.OPTIONAL_HEADER, "SizeOfImage", 0),
+                size_of_headers=getattr(self.pe.OPTIONAL_HEADER, "SizeOfHeaders", 0),
+                checksum=getattr(self.pe.OPTIONAL_HEADER, "CheckSum", 0),
+                subsystem=getattr(self.pe.OPTIONAL_HEADER, "Subsystem", 0),
+                dll_characteristics=getattr(self.pe.OPTIONAL_HEADER, "DllCharacteristics", 0),
                 # Memory configuration
-                size_of_stack_reserve=pe.OPTIONAL_HEADER.SizeOfStackReserve,
-                size_of_stack_commit=pe.OPTIONAL_HEADER.SizeOfStackCommit,
-                size_of_heap_reserve=pe.OPTIONAL_HEADER.SizeOfHeapReserve,
-                size_of_heap_commit=pe.OPTIONAL_HEADER.SizeOfHeapCommit,
-                loader_flags=pe.OPTIONAL_HEADER.LoaderFlags,
-                number_of_rva_and_sizes=pe.OPTIONAL_HEADER.NumberOfRvaAndSizes,
+                size_of_stack_reserve=getattr(self.pe.OPTIONAL_HEADER, "SizeOfStackReserve", 0),
+                size_of_stack_commit=getattr(self.pe.OPTIONAL_HEADER, "SizeOfStackCommit", 0),
+                size_of_heap_reserve=getattr(self.pe.OPTIONAL_HEADER, "SizeOfHeapReserve", 0),
+                size_of_heap_commit=getattr(self.pe.OPTIONAL_HEADER, "SizeOfHeapCommit", 0),
+                loader_flags=getattr(self.pe.OPTIONAL_HEADER, "LoaderFlags", 0),
+                number_of_rva_and_sizes=getattr(self.pe.OPTIONAL_HEADER, "NumberOfRvaAndSizes", 0),
                 # Intelligent section analysis
-                number_of_sections=len(pe.sections),
+                number_of_sections=len(self.pe.sections),
                 total_section_size=total_section_size,
                 max_section_size=max_section_size,
                 min_section_size=min_section_size,
@@ -127,15 +134,14 @@ class FeatureExtractor:
                 writable_sections=writable_sections,
                 suspicious_sections=suspicious_sections,
                 # Import/Export information
-                number_of_imports=len(pe.DIRECTORY_ENTRY_IMPORT)
-                if hasattr(pe, "DIRECTORY_ENTRY_IMPORT")
+                number_of_imports=sum(len(entry.imports) for entry in self.pe.DIRECTORY_ENTRY_IMPORT)
+                if hasattr(self.pe, "DIRECTORY_ENTRY_IMPORT")
                 else 0,
-                number_of_exports=len(pe.DIRECTORY_ENTRY_EXPORT)
-                if hasattr(pe, "DIRECTORY_ENTRY_EXPORT")
+                number_of_exports=len(self.pe.DIRECTORY_ENTRY_EXPORT.symbols)
+                if hasattr(self.pe, "DIRECTORY_ENTRY_EXPORT")
                 else 0,
             )
 
-            pe.close()
             return pe_features
 
         except Exception as e:
@@ -206,16 +212,21 @@ class FeatureExtractor:
             overall_entropy = self._calculate_shanon_entropy(self.bdata)
 
             section_entropies = {}
+            data_section_entropy = 0.0
+            rodata_section_entropy = 0.0
+            text_section_entropy = 0.0
             try:
-                import pefile
-
-                pe = pefile.PE(file_path)
-                for section in pe.sections:
+                for section in self.pe.sections:
                     if section.SizeOfRawData > 0:
                         section_data = section.get_data()
                         section_entropy = self._calculate_shanon_entropy(section_data)
+                        if re.match(r"\.data", section.Name):
+                            data_section_entropy = section_entropy
+                        elif re.match(r"\.r(o)?data", section.Name):
+                            rodata_section_entropy = section_entropy
+                        elif re.match(r"\.text", section.Name):
+                            text_section_entropy = section_entropy
                         section_entropies[section.Name] = section_entropy
-                pe.close()
             except Exception:
                 # Not a PE or parsing failed → fallback to chunk-based entropy
                 chunk_size = 4096  # 4 KB chunks
@@ -244,7 +255,9 @@ class FeatureExtractor:
 
             return EntropyFeatures(
                 overall_entropy=overall_entropy,
-                section_entropies=section_entropies,
+                data_section_entropy=data_section_entropy,
+                rodata_section_entropy=rodata_section_entropy,
+                text_section_entropy=text_section_entropy,
                 min_section_entropy=min_section_entropy,
                 max_section_entropy=max_section_entropy,
                 avg_section_entropy=avg_section_entropy,
@@ -258,7 +271,9 @@ class FeatureExtractor:
             logger.warning(f"Failed to extract entropy features from {file_path}: {e}")
             return EntropyFeatures(
                 overall_entropy=0.0,
-                section_entropies={},
+                data_section_entropy=0.0,
+                rodata_section_entropy=0.0,
+                text_section_entropy=0.0,
                 min_section_entropy=0.0,
                 max_section_entropy=0.0,
                 avg_section_entropy=0.0,
