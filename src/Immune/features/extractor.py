@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pefile
 
-from .model import APIFeatures, ByteHistogramFeatures, MalwareFeatures, PEFeatures
+from .models import APIFeatures, BinaryFeatures, ByteHistogramFeatures, EntropyFeatures, PEFeatures
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +18,14 @@ class FeatureExtractor:
         """Initialize the feature extractor."""
         pass
 
-    def extract_features(self, file_path: Path) -> MalwareFeatures:
+    def extract_features(self, file_path: Path, is_malware: bool) -> BinaryFeatures:
         """Extract all features from a binary file.
 
         Args:
             file_path: Path to the binary file
 
         Returns:
-            MalwareFeatures object containing all extracted features
+            BinaryFeatures object containing all extracted features
         """
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -35,12 +35,22 @@ class FeatureExtractor:
         with open(file_path, "rb") as f:
             self.bdata = f.read()
         # Extract each feature type
+        logger.info(f"Extracting PE features from {file_path}")
         pe_features = self._extract_pe_features(file_path)
+        logger.info(f"Extracting byte histogram from {file_path}")
         byte_histogram = self._extract_byte_histogram(file_path)
+        logger.info(f"Extracting entropy features from {file_path}")
+        entropy_features = self._extract_entropy_features(file_path)
+        logger.info(f"Extracting API features from {file_path}")
         api_features = self._extract_api_features(file_path)
 
-        return MalwareFeatures(
-            pe_features=pe_features, byte_histogram=byte_histogram, api_features=api_features
+        return BinaryFeatures(
+            is_malware=is_malware,
+            file_size=file_path.stat().st_size,
+            pe_features=pe_features,
+            byte_histogram=byte_histogram,
+            entropy_features=entropy_features,
+            api_features=api_features,
         )
 
     def _extract_pe_features(self, file_path: Path) -> PEFeatures:
@@ -173,20 +183,90 @@ class FeatureExtractor:
     def _extract_byte_histogram(self, file_path: Path) -> ByteHistogramFeatures:
         """Extract byte histogram features."""
         try:
-            # Calculate byte frequency histogram
-            histogram = np.zeros(256, dtype=np.uint32)
-            for byte in self.bdata:
-                histogram[byte] += 1
-
-            # Normalize histogram
-            if len(self.bdata) > 0:
-                histogram = histogram.astype(np.float32) / len(self.bdata)
-
+            data = np.frombuffer(self.bdata, dtype=np.uint8)
+            histogram = np.bincount(data, minlength=256)
+            histogram = histogram.astype(np.float32) / len(self.bdata)
             return ByteHistogramFeatures(histogram=histogram)
-
         except Exception as e:
             logger.warning(f"Failed to extract byte histogram from {file_path}: {e}")
             return ByteHistogramFeatures(histogram=np.zeros(256, dtype=np.float32))
+
+    def _calculate_shanon_entropy(self, data: bytes) -> float:
+        if not data:
+            return 0.0
+        arr = np.frombuffer(data, dtype=np.uint8)
+        counts = np.bincount(arr, minlength=256)  # histogram of all 256 possible byte values
+        probs = counts / arr.size  # normalize to probabilities
+        probs = probs[probs > 0]  # drop zero entries
+        entropy = -np.sum(probs * np.log2(probs))  # Shannon entropy in bits
+        return float(entropy)
+
+    def _extract_entropy_features(self, file_path: Path) -> EntropyFeatures:
+        try:
+            overall_entropy = self._calculate_shanon_entropy(self.bdata)
+
+            section_entropies = {}
+            try:
+                import pefile
+
+                pe = pefile.PE(file_path)
+                for section in pe.sections:
+                    if section.SizeOfRawData > 0:
+                        section_data = section.get_data()
+                        section_entropy = self._calculate_shanon_entropy(section_data)
+                        section_entropies[section.Name] = section_entropy
+                pe.close()
+            except Exception:
+                # Not a PE or parsing failed → fallback to chunk-based entropy
+                chunk_size = 4096  # 4 KB chunks
+                for i in range(0, len(self.bdata), chunk_size):
+                    chunk = self.bdata[i : i + chunk_size]
+                    if len(chunk) >= 256:
+                        chunk_entropy = self._calculate_shanon_entropy(chunk)
+                        section_entropies[f"chunk_{i}"] = chunk_entropy
+
+            # Section-level entropy stats
+            if section_entropies:
+                min_section_entropy = min(section_entropies.values())
+                max_section_entropy = max(section_entropies.values())
+                avg_section_entropy = sum(section_entropies.values()) / len(
+                    section_entropies.values()
+                )
+                std_section_entropy = np.std(list(section_entropies.values()))
+                high_entropy_sections = sum(e > 7.0 for e in section_entropies.values())
+                low_entropy_sections = sum(e < 4.0 for e in section_entropies.values())
+                entropy_variance = np.var(list(section_entropies.values()))
+            else:
+                min_section_entropy = max_section_entropy = avg_section_entropy = overall_entropy
+                std_section_entropy = high_entropy_sections = low_entropy_sections = (
+                    entropy_variance
+                ) = 0.0
+
+            return EntropyFeatures(
+                overall_entropy=overall_entropy,
+                section_entropies=section_entropies,
+                min_section_entropy=min_section_entropy,
+                max_section_entropy=max_section_entropy,
+                avg_section_entropy=avg_section_entropy,
+                std_section_entropy=std_section_entropy,
+                high_entropy_sections=high_entropy_sections,
+                low_entropy_sections=low_entropy_sections,
+                entropy_variance=entropy_variance,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to extract entropy features from {file_path}: {e}")
+            return EntropyFeatures(
+                overall_entropy=0.0,
+                section_entropies={},
+                min_section_entropy=0.0,
+                max_section_entropy=0.0,
+                avg_section_entropy=0.0,
+                std_section_entropy=0.0,
+                high_entropy_sections=0,
+                low_entropy_sections=0,
+                entropy_variance=0.0,
+            )
 
     def _extract_api_features(self, file_path: Path) -> APIFeatures:
         """Extract API call and string features."""

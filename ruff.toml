@@ -16,8 +16,17 @@ select = [
 # Ignore some rules that are too strict for existing code
 ignore = [
     "E501",  # line too long (handled by formatter)
+    "W293",  # blank line contains whitespace
 ]
 
 # Exclude test files from some rules
 [lint.per-file-ignores]
-"tests/*" = ["B011"]  # Don't require assert messages in tests 
+"tests/*" = ["B011"]  # Don't require assert messages in tests
+
+[format]
+# Remove blank lines from empty lines
+skip-magic-trailing-comma = false
+line-ending = "auto"
+indent-style = "space"
+quote-style = "double"
+docstring-code-format = false

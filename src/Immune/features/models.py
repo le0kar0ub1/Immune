@@ -1,7 +1,7 @@
 """Data models for malware detection features."""
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 
@@ -101,6 +101,46 @@ class PEFeatures:
 
         return np.array(features, dtype=np.float32)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "size_of_code": self.size_of_code,
+            "size_of_initialized_data": self.size_of_initialized_data,
+            "size_of_uninitialized_data": self.size_of_uninitialized_data,
+            "address_of_entry_point": self.address_of_entry_point,
+            "base_of_code": self.base_of_code,
+            "base_of_data": self.base_of_data,
+            "image_base": self.image_base,
+            "section_alignment": self.section_alignment,
+            "file_alignment": self.file_alignment,
+            "major_os_version": self.major_os_version,
+            "minor_os_version": self.minor_os_version,
+            "major_image_version": self.major_image_version,
+            "minor_image_version": self.minor_image_version,
+            "major_subsystem_version": self.major_subsystem_version,
+            "minor_subsystem_version": self.minor_subsystem_version,
+            "size_of_image": self.size_of_image,
+            "size_of_headers": self.size_of_headers,
+            "checksum": self.checksum,
+            "subsystem": self.subsystem,
+            "dll_characteristics": self.dll_characteristics,
+            "size_of_stack_reserve": self.size_of_stack_reserve,
+            "size_of_stack_commit": self.size_of_stack_commit,
+            "size_of_heap_reserve": self.size_of_heap_reserve,
+            "size_of_heap_commit": self.size_of_heap_commit,
+            "loader_flags": self.loader_flags,
+            "number_of_rva_and_sizes": self.number_of_rva_and_sizes,
+            "number_of_sections": self.number_of_sections,
+            "total_section_size": self.total_section_size,
+            "max_section_size": self.max_section_size,
+            "min_section_size": self.min_section_size,
+            "avg_section_size": self.avg_section_size,
+            "executable_sections": self.executable_sections,
+            "writable_sections": self.writable_sections,
+            "suspicious_sections": self.suspicious_sections,
+            "number_of_imports": self.number_of_imports,
+            "number_of_exports": self.number_of_exports,
+        }
+
     @classmethod
     def get_feature_names(cls) -> List[str]:
         """Get list of feature names in order."""
@@ -159,6 +199,78 @@ class ByteHistogramFeatures:
     def get_feature_names(cls) -> List[str]:
         """Get list of feature names in order."""
         return [f"byte_{i:02x}" for i in range(256)]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "histogram": self.histogram.tolist(),
+        }
+
+
+@dataclass
+class EntropyFeatures:
+    """Entropy-based features for malware detection."""
+
+    # Overall file entropy
+    overall_entropy: float
+
+    # Entropy by sections (for PE files)
+    section_entropies: dict[str, float]
+
+    # Entropy statistics
+    min_section_entropy: float
+    max_section_entropy: float
+    avg_section_entropy: float
+    std_section_entropy: float
+
+    # Entropy distribution features
+    high_entropy_sections: int  # Sections with entropy > 7.0 (suspicious)
+    low_entropy_sections: int  # Sections with entropy < 4.0 (likely compressed/packed)
+
+    # Entropy-based ratios
+    entropy_variance: float  # Variance of section entropies
+
+    def to_array(self) -> np.ndarray:
+        """Convert to numpy array for model input."""
+        features = [
+            self.overall_entropy,
+            self.section_entropies,
+            self.min_section_entropy,
+            self.max_section_entropy,
+            self.avg_section_entropy,
+            self.std_section_entropy,
+            self.high_entropy_sections,
+            self.low_entropy_sections,
+            self.entropy_variance,
+        ]
+        return np.array(features, dtype=np.float32)
+
+    @classmethod
+    def get_feature_names(cls) -> List[str]:
+        """Get list of feature names in order."""
+        return [
+            "overall_entropy",
+            "section_entropies",
+            "min_section_entropy",
+            "max_section_entropy",
+            "avg_section_entropy",
+            "std_section_entropy",
+            "high_entropy_sections",
+            "low_entropy_sections",
+            "entropy_variance",
+        ]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "overall_entropy": self.overall_entropy,
+            # "section_entropies": self.section_entropies,
+            "min_section_entropy": self.min_section_entropy,
+            "max_section_entropy": self.max_section_entropy,
+            "avg_section_entropy": self.avg_section_entropy,
+            "std_section_entropy": self.std_section_entropy,
+            "high_entropy_sections": self.high_entropy_sections,
+            "low_entropy_sections": self.low_entropy_sections,
+            "entropy_variance": self.entropy_variance,
+        }
 
 
 @dataclass
@@ -254,6 +366,22 @@ class APIFeatures:
 
         return np.array(api_features, dtype=np.float32)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "file_apis": self.file_apis,
+            "registry_apis": self.registry_apis,
+            "network_apis": self.network_apis,
+            "process_apis": self.process_apis,
+            "memory_apis": self.memory_apis,
+            "system_apis": self.system_apis,
+            "crypto_apis": self.crypto_apis,
+            "anti_debug_apis": self.anti_debug_apis,
+            "total_strings": self.total_strings,
+            "avg_string_length": self.avg_string_length,
+            "max_string_length": self.max_string_length,
+            "min_string_length": self.min_string_length,
+        }
+
     @classmethod
     def get_feature_names(cls) -> List[str]:
         """Get list of feature names in order."""
@@ -304,36 +432,80 @@ class APIFeatures:
 
 
 @dataclass
-class MalwareFeatures:
+class BinaryFeatures:
     """Complete feature set for malware detection."""
+
+    total_number_of_features: int
+
+    # malware_class: int | None  # class of malware, None if unknown
+    is_malware: bool | None  # True if malware, False if benign, None if unknown
+    file_size: int
 
     pe_features: PEFeatures
     byte_histogram: ByteHistogramFeatures
+    entropy_features: EntropyFeatures
     api_features: APIFeatures
+
+    def __init__(
+        self,
+        file_size: int,
+        is_malware: bool | None = None,
+        pe_features: PEFeatures | None = None,
+        byte_histogram: ByteHistogramFeatures | None = None,
+        entropy_features: EntropyFeatures | None = None,
+        api_features: APIFeatures | None = None,
+    ):
+        self.file_size = file_size
+        self.is_malware = is_malware
+        self.pe_features = pe_features
+        self.byte_histogram = byte_histogram
+        self.entropy_features = entropy_features
+        self.api_features = api_features
+        self.total_number_of_features = 1 + (
+            len(self.pe_features.get_feature_names())
+            + len(self.byte_histogram.get_feature_names())
+            + len(self.entropy_features.get_feature_names())
+            + len(self.api_features.get_feature_names())
+        )
 
     def to_array(self) -> np.ndarray:
         """Convert all features to a single concatenated array."""
         return np.concatenate(
             [
+                np.array([self.file_size], dtype=np.int64),
                 self.pe_features.to_array(),
                 self.byte_histogram.to_array(),
+                self.entropy_features.to_array(),
                 self.api_features.to_array(),
             ]
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "file_size": self.file_size,
+            "pe_features": self.pe_features.to_dict(),
+            "byte_histogram": self.byte_histogram.to_dict(),
+            "entropy_features": self.entropy_features.to_dict(),
+            "api_features": self.api_features.to_dict(),
+        }
+
     def get_feature_names(self) -> List[str]:
         """Get all feature names in order."""
         return (
-            self.pe_features.get_feature_names()
+            ["file_size"]
+            + self.pe_features.get_feature_names()
             + self.byte_histogram.get_feature_names()
+            + self.entropy_features.get_feature_names()
             + self.api_features.get_feature_names()
         )
 
     def get_feature_sizes(self) -> Dict[str, int]:
         """Get the size of each feature group."""
         return {
+            "file_size": 1,
             "pe_features": len(self.pe_features.get_feature_names()),
             "byte_histogram": len(self.byte_histogram.get_feature_names()),
+            "entropy_features": len(self.entropy_features.get_feature_names()),
             "api_features": len(self.api_features.get_feature_names()),
         }
 
@@ -341,10 +513,16 @@ class MalwareFeatures:
         """Get the start and end indices for each feature group."""
         pe_size = len(self.pe_features.get_feature_names())
         byte_size = len(self.byte_histogram.get_feature_names())
+        entropy_size = len(self.entropy_features.get_feature_names())
         api_size = len(self.api_features.get_feature_names())
 
         return {
-            "pe_features": (0, pe_size),
+            "file_size": (0, 1),
+            "pe_features": (1, 1 + pe_size),
             "byte_histogram": (pe_size, pe_size + byte_size),
-            "api_features": (pe_size + byte_size, pe_size + byte_size + api_size),
+            "entropy_features": (pe_size + byte_size, pe_size + byte_size + entropy_size),
+            "api_features": (
+                pe_size + byte_size + entropy_size,
+                pe_size + byte_size + entropy_size + api_size,
+            ),
         }

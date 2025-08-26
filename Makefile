@@ -3,11 +3,17 @@
 install:
 	uv sync
 
-train:
-	python src/train.py
+scrap:
+	python src/scrap.py -o data/malware -l 1000
+
+fetch-sorel:
+	python src/Immune/data/fetch_sorel20M.py
 
 features:
-	python src/features.py
+	python src/features.py -im data/malware -ib data/benign --output=data/features.json -e .bin
+
+train:
+	python src/train.py
 
 lint:
 	ruff check src/ tests/

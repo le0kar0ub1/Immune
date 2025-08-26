@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
-"""Training script for the multi-headed malware detection model."""
-
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
-from typing import Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -16,13 +14,13 @@ from torch.utils.data import DataLoader, random_split
 # Add src to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.data.feature_extractor import MultiHeadFeatureExtractor
-from src.models.malware_detector import (
+from Immune.models.malware_detector import (
     MalwareDataset,
-    MultiHeadMalwareDetector,
-    train_multi_head_model,
+    MalwareDetector,
+    evaluate_model,
+    train_model,
 )
-from src.utils.visualization import create_training_report
+from Immune.utils.visualization import create_training_report
 
 console = Console()
 
@@ -37,166 +35,199 @@ def setup_logging(level: str = "INFO") -> None:
     )
 
 
-def load_dataset(
-    data_dir: Path, feature_extractor: MultiHeadFeatureExtractor, train_split: float = 0.8
-) -> Tuple[DataLoader, DataLoader]:
-    """Load and prepare dataset for training.
+def load_features_from_json(features_file: Path) -> Tuple[np.ndarray, np.ndarray]:
+    """Load pre-computed features from JSON file.
 
     Args:
-        data_dir: Directory containing malware and benign samples
-        feature_extractor: Feature extractor instance
-        train_split: Fraction of data to use for training
+        features_file: Path to features.json file
 
     Returns:
-        Tuple of (train_loader, val_loader)
+        Tuple of (features, labels) arrays
     """
-    console.print("[yellow]📁 Loading dataset...[/yellow]")
+    console.print(f"[yellow]📁 Loading pre-computed features from {features_file}...[/yellow]")
 
-    # Expected directory structure:
-    # data_dir/
-    # ├── malware/
-    # │   ├── sample1.exe
-    # │   ├── sample2.exe
-    # │   └── ...
-    # └── benign/
-    #     ├── sample1.exe
-    #     ├── sample2.exe
-    #     └── ...
+    if not features_file.exists():
+        raise FileNotFoundError(f"Features file {features_file} not found")
 
-    malware_dir = data_dir / "malware"
-    benign_dir = data_dir / "benign"
+    try:
+        with open(features_file, "r") as f:
+            data = json.load(f)
 
-    if not malware_dir.exists() or not benign_dir.exists():
-        raise ValueError(f"Expected directory structure:\n{data_dir}/malware/\n{data_dir}/benign/")
+        features_list = []
+        labels_list = []
 
-    # Collect file paths and labels
-    malware_files = list(malware_dir.glob("*.exe")) + list(malware_dir.glob("*.dll"))
-    benign_files = list(benign_dir.glob("*.exe")) + list(benign_dir.glob("*.dll"))
+        console.print(f"[green]✅ Loaded {len(data['files'])} samples[/green]")
 
-    console.print(f"[green]✅ Found {len(malware_files)} malware samples[/green]")
-    console.print(f"[green]✅ Found {len(benign_files)} benign samples[/green]")
+        for sample in data["files"]:
+            # Extract features array from the sample
+            features = np.array(sample["features"], dtype=np.float32)
+            label = sample["label"]  # 0=benign, 1=malware
 
-    if len(malware_files) == 0 or len(benign_files) == 0:
-        raise ValueError("Need both malware and benign samples for training")
-
-    # Extract features
-    console.print("[yellow]📊 Extracting features...[/yellow]")
-
-    features_list = []
-    labels_list = []
-
-    # Process malware samples
-    for file_path in malware_files:
-        try:
-            features = feature_extractor.extract_concatenated_features(file_path)
             features_list.append(features)
-            labels_list.append(1)  # Malware = 1
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Skipping {file_path}: {e}[/yellow]")
+            labels_list.append(label)
 
-    # Process benign samples
-    for file_path in benign_files:
-        try:
-            features = feature_extractor.extract_concatenated_features(file_path)
-            features_list.append(features)
-            labels_list.append(0)  # Benign = 0
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Skipping {file_path}: {e}[/yellow]")
+        features_array = np.array(features_list, dtype=np.float32)
+        labels_array = np.array(labels_list, dtype=np.int64)
 
-    if len(features_list) == 0:
-        raise ValueError("No valid samples could be processed")
+        console.print(f"[green]✅ Loaded {len(features_array)} samples[/green]")
+        console.print(f"[green]✅ Feature vector size: {features_array.shape[1]}[/green]")
 
-    # Convert to numpy arrays
-    features_array = np.array(features_list, dtype=np.float32)
-    labels_array = np.array(labels_list, dtype=np.int64)
+        # Validate feature dimensions
+        if features_array.shape[1] != 358:  # Expected feature size from BinaryFeatures
+            console.print(
+                f"[yellow]⚠️  Warning: Expected 358 features, got {features_array.shape[1]}[/yellow]"
+            )
 
-    console.print(f"[green]✅ Processed {len(features_array)} samples[/green]")
-    console.print(f"[green]✅ Feature vector size: {features_array.shape[1]}[/green]")
+        return features_array, labels_array
 
-    # Create dataset
-    dataset = MalwareDataset(features_array, labels_array)
+    except Exception as e:
+        raise ValueError(f"Failed to load features from {features_file}") from e
 
-    # Split into train/validation
-    train_size = int(train_split * len(dataset))
-    val_size = len(dataset) - train_size
 
-    train_dataset, val_dataset = random_split(
-        dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
+def prepare_data_loaders(
+    features: np.ndarray,
+    labels: np.ndarray,
+    train_ratio: float = 0.7,
+    val_ratio: float = 0.15,
+    batch_size: int = 64,
+    shuffle_train: bool = True,
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """Prepare data loaders for training, validation, and testing.
+
+    Args:
+        features: Feature array
+        labels: Label array
+        train_ratio: Ratio of training data
+        val_ratio: Ratio of validation data
+        batch_size: Batch size for data loaders
+        shuffle_train: Whether to shuffle training data
+
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader)
+    """
+    dataset = MalwareDataset(features, labels)
+
+    # Calculate split sizes
+    total_size = len(dataset)
+    train_size = int(train_ratio * total_size)
+    val_size = int(val_ratio * total_size)
+    test_size = total_size - train_size - val_size
+
+    # Split dataset
+    train_dataset, val_dataset, test_dataset = random_split(
+        dataset, [train_size, val_size, test_size], generator=torch.Generator().manual_seed(42)
     )
 
     # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle_train)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    return train_loader, val_loader
+    console.print(
+        f"[green]✅ Data split: Train={len(train_dataset)}, Val={len(val_dataset)}, Test={len(test_dataset)}[/green]"
+    )
+
+    return train_loader, val_loader, test_loader
 
 
-def train_model(
-    train_loader: DataLoader,
-    val_loader: DataLoader,
+def run_training_pipeline(
+    features_file: Path,
     model_save_path: Path,
     reports_dir: Path,
-    epochs: int = 40,
+    train_ratio: float = 0.7,
+    val_ratio: float = 0.15,
+    epochs: int = 100,
     learning_rate: float = 0.001,
     device: str = "cpu",
-) -> None:
-    """Train the malware detection model.
+    batch_size: int = 64,
+    early_stopping_patience: int = 15,
+) -> Dict[str, List[float]]:
+    """Run the complete training pipeline using pre-computed features.
 
     Args:
-        train_loader: Training data loader
-        val_loader: Validation data loader
+        features_file: Path to features.json file
         model_save_path: Path to save the trained model
         reports_dir: Directory to save training reports
+        train_ratio: Ratio of training data
+        val_ratio: Ratio of validation data
         epochs: Number of training epochs
         learning_rate: Learning rate for optimization
         device: Device to train on
-    """
-    console.print(f"[bold blue]🚀 Starting training on {device}[/bold blue]")
+        batch_size: Batch size for training
+        early_stopping_patience: Patience for early stopping
 
-    # Initialize model
-    model = MultiHeadMalwareDetector()
+    Returns:
+        Training history dictionary
+    """
+    console.print("[bold blue]🚀 Starting complete training pipeline...[/bold blue]")
+
+    # Load pre-computed features
+    features, labels_array = load_features_from_json(features_file)
+
+    # Prepare data loaders
+    train_loader, val_loader, test_loader = prepare_data_loaders(
+        features, labels_array, train_ratio, val_ratio, batch_size
+    )
+
+    # Initialize model using existing MalwareDetector class
+    model = MalwareDetector()
     console.print(
         f"[green]✅ Model initialized with {sum(p.numel() for p in model.parameters()):,} parameters[/green]"
     )
 
-    # Train the model
-    history = train_multi_head_model(
+    # Train model using existing train_model function
+    console.print(f"[bold blue]🚀 Starting training on {device}[/bold blue]")
+    history = train_model(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
         epochs=epochs,
         learning_rate=learning_rate,
         device=device,
+        early_stopping_patience=early_stopping_patience,
     )
 
-    # Save the model
+    # Save the model using existing save_model method
     model_save_path.parent.mkdir(parents=True, exist_ok=True)
     model.save_model(model_save_path)
     console.print(f"[green]✅ Model saved to {model_save_path}[/green]")
 
+    # Evaluate model using existing evaluate_model function
+    console.print("[yellow]📊 Evaluating model on test set...[/yellow]")
+    metrics = evaluate_model(model, test_loader, device)
+
     # Create training report
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    # Calculate final metrics
+    # Calculate final metrics for report
     final_train_loss = history["train_losses"][-1]
     final_val_loss = history["val_losses"][-1]
 
-    metrics = {
+    report_metrics = {
         "final_train_loss": final_train_loss,
         "final_val_loss": final_val_loss,
         "best_val_loss": min(history["val_losses"]),
         "epochs_trained": len(history["train_losses"]),
+        **metrics,  # Include evaluation metrics
     }
 
-    create_training_report(history, metrics, reports_dir)
+    create_training_report(history, report_metrics, reports_dir)
     console.print(f"[green]✅ Training report saved to {reports_dir}[/green]")
+
+    console.print("[bold green]🎉 Training pipeline completed successfully![/bold green]")
+    return history
 
 
 def main() -> None:
     """Main training function."""
-    parser = argparse.ArgumentParser(description="Train the multi-headed malware detection model")
+    parser = argparse.ArgumentParser(
+        description="Train the malware detection model using pre-computed features"
+    )
     parser.add_argument(
-        "data_dir", type=Path, help="Directory containing malware and benign samples"
+        "--features-file",
+        type=Path,
+        default=Path("data/features.json"),
+        help="Path to features.json file containing pre-computed features",
     )
     parser.add_argument(
         "--model-save-path",
@@ -210,7 +241,7 @@ def main() -> None:
         default=Path("reports/"),
         help="Directory to save training reports",
     )
-    parser.add_argument("--epochs", type=int, default=40, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
     parser.add_argument(
         "--learning-rate", type=float, default=0.001, help="Learning rate for optimization"
     )
@@ -218,7 +249,14 @@ def main() -> None:
         "--device", default="cpu", choices=["cpu", "cuda"], help="Device to train on"
     )
     parser.add_argument(
-        "--train-split", type=float, default=0.8, help="Fraction of data to use for training"
+        "--train-ratio", type=float, default=0.7, help="Fraction of data to use for training"
+    )
+    parser.add_argument(
+        "--val-ratio", type=float, default=0.15, help="Fraction of data to use for validation"
+    )
+    parser.add_argument("--batch-size", type=int, default=64, help="Batch size for training")
+    parser.add_argument(
+        "--early-stopping-patience", type=int, default=15, help="Patience for early stopping"
     )
     parser.add_argument(
         "--log-level",
@@ -232,26 +270,26 @@ def main() -> None:
     logger = logging.getLogger(__name__)
 
     try:
-        # Check if data directory exists
-        if not args.data_dir.exists():
-            console.print(f"[red]❌ Data directory {args.data_dir} does not exist[/red]")
+        # Check if features file exists
+        if not args.features_file.exists():
+            console.print(f"[red]❌ Features file {args.features_file} does not exist[/red]")
+            console.print(
+                "[yellow]💡 Make sure to run feature extraction first to generate data/features.json[/yellow]"
+            )
             sys.exit(1)
 
-        # Initialize feature extractor
-        feature_extractor = MultiHeadFeatureExtractor()
-
-        # Load dataset
-        train_loader, val_loader = load_dataset(args.data_dir, feature_extractor, args.train_split)
-
-        # Train model
-        train_model(
-            train_loader=train_loader,
-            val_loader=val_loader,
+        # Run training pipeline
+        run_training_pipeline(
+            features_file=args.features_file,
             model_save_path=args.model_save_path,
             reports_dir=args.reports_dir,
+            train_ratio=args.train_ratio,
+            val_ratio=args.val_ratio,
             epochs=args.epochs,
             learning_rate=args.learning_rate,
             device=args.device,
+            batch_size=args.batch_size,
+            early_stopping_patience=args.early_stopping_patience,
         )
 
         console.print("[bold green]🎉 Training completed successfully![/bold green]")
