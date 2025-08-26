@@ -40,8 +40,15 @@ class FeatureExtractor:
 
         with open(file_path, "rb") as f:
             self.bdata = f.read()
-        
-        self.pe = pefile.PE(file_path)
+
+        # Try to parse as PE file, but don't fail if it's not a PE
+        self.pe = None
+        try:
+            self.pe = pefile.PE(file_path)
+            logger.debug(f"Successfully parsed {file_path} as PE file")
+        except Exception as e:
+            logger.warning(f"Failed to parse {file_path} as PE file: {e}")
+            self.pe = None
 
         # Extract each feature type
         logger.debug(f"Extracting PE features from {file_path}")
@@ -64,6 +71,48 @@ class FeatureExtractor:
 
     def _extract_pe_features(self, file_path: Path) -> PEFeatures:
         """Extract PE file features."""
+        # Check if we have a valid PE file
+        if not hasattr(self, "pe") or self.pe is None:
+            logger.warning(f"No PE file available for {file_path}, returning default features")
+            return PEFeatures(
+                size_of_code=0,
+                size_of_initialized_data=0,
+                size_of_uninitialized_data=0,
+                address_of_entry_point=0,
+                base_of_code=0,
+                base_of_data=0,
+                image_base=0,
+                section_alignment=0,
+                file_alignment=0,
+                major_os_version=0,
+                minor_os_version=0,
+                major_image_version=0,
+                minor_image_version=0,
+                major_subsystem_version=0,
+                minor_subsystem_version=0,
+                size_of_image=0,
+                size_of_headers=0,
+                checksum=0,
+                subsystem=0,
+                dll_characteristics=0,
+                size_of_stack_reserve=0,
+                size_of_stack_commit=0,
+                size_of_heap_reserve=0,
+                size_of_heap_commit=0,
+                loader_flags=0,
+                number_of_rva_and_sizes=0,
+                number_of_sections=0,
+                total_section_size=0,
+                max_section_size=0,
+                min_section_size=0,
+                avg_section_size=0.0,
+                executable_sections=0,
+                writable_sections=0,
+                suspicious_sections=0,
+                number_of_imports=0,
+                number_of_exports=0,
+            )
+
         try:
             # Analyze all sections intelligently
             section_sizes = []
@@ -96,8 +145,12 @@ class FeatureExtractor:
             pe_features = PEFeatures(
                 # Basic PE characteristics
                 size_of_code=getattr(self.pe.OPTIONAL_HEADER, "SizeOfCode", 0),
-                size_of_initialized_data=getattr(self.pe.OPTIONAL_HEADER, "SizeOfInitializedData", 0),
-                size_of_uninitialized_data=getattr(self.pe.OPTIONAL_HEADER, "SizeOfUninitializedData", 0),
+                size_of_initialized_data=getattr(
+                    self.pe.OPTIONAL_HEADER, "SizeOfInitializedData", 0
+                ),
+                size_of_uninitialized_data=getattr(
+                    self.pe.OPTIONAL_HEADER, "SizeOfUninitializedData", 0
+                ),
                 address_of_entry_point=getattr(self.pe.OPTIONAL_HEADER, "AddressOfEntryPoint", 0),
                 base_of_code=getattr(self.pe.OPTIONAL_HEADER, "BaseOfData", 0),
                 base_of_data=getattr(self.pe.OPTIONAL_HEADER, "BaseOfData", 0),
@@ -109,8 +162,12 @@ class FeatureExtractor:
                 minor_os_version=getattr(self.pe.OPTIONAL_HEADER, "MinorOperatingSystemVersion", 0),
                 major_image_version=getattr(self.pe.OPTIONAL_HEADER, "MajorImageVersion", 0),
                 minor_image_version=getattr(self.pe.OPTIONAL_HEADER, "MinorImageVersion", 0),
-                major_subsystem_version=getattr(self.pe.OPTIONAL_HEADER, "MajorSubsystemVersion", 0),
-                minor_subsystem_version=getattr(self.pe.OPTIONAL_HEADER, "MinorSubsystemVersion", 0),
+                major_subsystem_version=getattr(
+                    self.pe.OPTIONAL_HEADER, "MajorSubsystemVersion", 0
+                ),
+                minor_subsystem_version=getattr(
+                    self.pe.OPTIONAL_HEADER, "MinorSubsystemVersion", 0
+                ),
                 # Size information
                 size_of_image=getattr(self.pe.OPTIONAL_HEADER, "SizeOfImage", 0),
                 size_of_headers=getattr(self.pe.OPTIONAL_HEADER, "SizeOfHeaders", 0),
@@ -134,7 +191,9 @@ class FeatureExtractor:
                 writable_sections=writable_sections,
                 suspicious_sections=suspicious_sections,
                 # Import/Export information
-                number_of_imports=sum(len(entry.imports) for entry in self.pe.DIRECTORY_ENTRY_IMPORT)
+                number_of_imports=sum(
+                    len(entry.imports) for entry in self.pe.DIRECTORY_ENTRY_IMPORT
+                )
                 if hasattr(self.pe, "DIRECTORY_ENTRY_IMPORT")
                 else 0,
                 number_of_exports=len(self.pe.DIRECTORY_ENTRY_EXPORT.symbols)
@@ -208,6 +267,7 @@ class FeatureExtractor:
         return float(entropy)
 
     def _extract_entropy_features(self, file_path: Path) -> EntropyFeatures:
+        """Extract entropy features from binary file, handling both PE and non-PE files."""
         try:
             overall_entropy = self._calculate_shanon_entropy(self.bdata)
 
@@ -215,39 +275,54 @@ class FeatureExtractor:
             data_section_entropy = 0.0
             rodata_section_entropy = 0.0
             text_section_entropy = 0.0
-            try:
-                for section in self.pe.sections:
-                    if section.SizeOfRawData > 0:
-                        section_data = section.get_data()
-                        section_entropy = self._calculate_shanon_entropy(section_data)
-                        if re.match(r"\.data", section.Name):
-                            data_section_entropy = section_entropy
-                        elif re.match(r"\.r(o)?data", section.Name):
-                            rodata_section_entropy = section_entropy
-                        elif re.match(r"\.text", section.Name):
-                            text_section_entropy = section_entropy
-                        section_entropies[section.Name] = section_entropy
-            except Exception:
-                # Not a PE or parsing failed → fallback to chunk-based entropy
+
+            # Try to extract PE section entropies if available
+            if hasattr(self, "pe") and self.pe is not None:
+                try:
+                    for section in self.pe.sections:
+                        if section.SizeOfRawData > 0:
+                            section_data = section.get_data()
+                            section_entropy = self._calculate_shanon_entropy(section_data)
+                            logger.debug(f"Section {section.Name}: entropy = {section_entropy}")
+
+                            # Store section entropy
+                            section_entropies[section.Name] = section_entropy
+
+                            # Identify specific section types
+                            if re.match(r"\.data.*", section.Name.decode("utf-8", errors="ignore")):
+                                data_section_entropy = section_entropy
+                            elif re.match(
+                                r"\.r(o)?data.*", section.Name.decode("utf-8", errors="ignore")
+                            ):
+                                rodata_section_entropy = section_entropy
+                            elif re.match(
+                                r"\.text.*", section.Name.decode("utf-8", errors="ignore")
+                            ):
+                                text_section_entropy = section_entropy
+                except Exception as e:
+                    logger.warning(f"Failed to parse PE sections for entropy: {e}")
+                    # Fall through to chunk-based entropy
+
+            # If no PE sections or parsing failed, use chunk-based entropy
+            if not section_entropies:
                 chunk_size = 4096  # 4 KB chunks
                 for i in range(0, len(self.bdata), chunk_size):
                     chunk = self.bdata[i : i + chunk_size]
-                    if len(chunk) >= 256:
+                    if len(chunk) >= 256:  # Only calculate entropy for chunks with sufficient data
                         chunk_entropy = self._calculate_shanon_entropy(chunk)
-                        section_entropies[f"chunk_{i}"] = chunk_entropy
+                        section_entropies[f"chunk_{i // chunk_size}"] = chunk_entropy
 
-            # Section-level entropy stats
+            # Calculate section-level entropy statistics
             if section_entropies:
                 min_section_entropy = min(section_entropies.values())
                 max_section_entropy = max(section_entropies.values())
-                avg_section_entropy = sum(section_entropies.values()) / len(
-                    section_entropies.values()
-                )
+                avg_section_entropy = sum(section_entropies.values()) / len(section_entropies)
                 std_section_entropy = np.std(list(section_entropies.values()))
                 high_entropy_sections = sum(e > 7.0 for e in section_entropies.values())
                 low_entropy_sections = sum(e < 4.0 for e in section_entropies.values())
                 entropy_variance = np.var(list(section_entropies.values()))
             else:
+                # Fallback values if no sections/chunks available
                 min_section_entropy = max_section_entropy = avg_section_entropy = overall_entropy
                 std_section_entropy = high_entropy_sections = low_entropy_sections = (
                     entropy_variance

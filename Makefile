@@ -16,7 +16,7 @@ features-extraction:
 	python src/features.py -im data/sorel20M -ib data/assemblagePE --output=data/features.json
 
 features-input-layer-building:
-	python src/Immune/data/process_features.py
+	python src/Immune/features/input_layer_formatter.py
 
 train:
 	python src/train.py

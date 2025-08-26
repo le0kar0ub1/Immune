@@ -3,7 +3,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -53,40 +53,19 @@ def load_features_from_json(features_file: Path) -> Tuple[np.ndarray, np.ndarray
         with open(features_file, "r") as f:
             data = json.load(f)
 
-        features_list = []
-        labels_list = []
+        console.print(f"[green]✅ Loaded {len(data.keys())} samples[/green]")
+        console.print(
+            f"[green]✅ Feature vector size: {len(data[list(data.keys())[0]]['feature_array'])}[/green]"
+        )
 
-        console.print(f"[green]✅ Loaded {len(data['files'])} samples[/green]")
-
-        for sample in data["files"]:
-            # Extract features array from the sample
-            features = np.array(sample["features"], dtype=np.float32)
-            label = sample["label"]  # 0=benign, 1=malware
-
-            features_list.append(features)
-            labels_list.append(label)
-
-        features_array = np.array(features_list, dtype=np.float32)
-        labels_array = np.array(labels_list, dtype=np.int64)
-
-        console.print(f"[green]✅ Loaded {len(features_array)} samples[/green]")
-        console.print(f"[green]✅ Feature vector size: {features_array.shape[1]}[/green]")
-
-        # Validate feature dimensions
-        if features_array.shape[1] != 358:  # Expected feature size from BinaryFeatures
-            console.print(
-                f"[yellow]⚠️  Warning: Expected 358 features, got {features_array.shape[1]}[/yellow]"
-            )
-
-        return features_array, labels_array
+        return data
 
     except Exception as e:
         raise ValueError(f"Failed to load features from {features_file}") from e
 
 
 def prepare_data_loaders(
-    features: np.ndarray,
-    labels: np.ndarray,
+    features: Dict[str, Dict[str, Any]],
     train_ratio: float = 0.7,
     val_ratio: float = 0.15,
     batch_size: int = 64,
@@ -105,7 +84,7 @@ def prepare_data_loaders(
     Returns:
         Tuple of (train_loader, val_loader, test_loader)
     """
-    dataset = MalwareDataset(features, labels)
+    dataset = MalwareDataset(features)
 
     # Calculate split sizes
     total_size = len(dataset)
@@ -162,11 +141,11 @@ def run_training_pipeline(
     console.print("[bold blue]🚀 Starting complete training pipeline...[/bold blue]")
 
     # Load pre-computed features
-    features, labels_array = load_features_from_json(features_file)
+    features = load_features_from_json(features_file)
 
     # Prepare data loaders
     train_loader, val_loader, test_loader = prepare_data_loaders(
-        features, labels_array, train_ratio, val_ratio, batch_size
+        features, train_ratio, val_ratio, batch_size
     )
 
     # Initialize model using existing MalwareDetector class
@@ -226,7 +205,7 @@ def main() -> None:
     parser.add_argument(
         "--features-file",
         type=Path,
-        default=Path("data/features.json"),
+        default=Path("data/formatted_features.json"),
         help="Path to features.json file containing pre-computed features",
     )
     parser.add_argument(

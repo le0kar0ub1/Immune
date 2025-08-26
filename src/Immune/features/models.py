@@ -58,7 +58,7 @@ class PEFeatures:
     number_of_imports: int
     number_of_exports: int
 
-    def to_array(self) -> np.ndarray:
+    def to_input_layer_format(self) -> np.ndarray:
         """Convert to numpy array for model input."""
         features = [
             self.size_of_code,
@@ -140,7 +140,7 @@ class PEFeatures:
             "number_of_imports": self.number_of_imports,
             "number_of_exports": self.number_of_exports,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PEFeatures":
         return cls(
@@ -232,7 +232,7 @@ class ByteHistogramFeatures:
     # 256-dimensional byte histogram (normalized)
     histogram: np.ndarray  # Shape: (256,)
 
-    def to_array(self) -> np.ndarray:
+    def to_input_layer_format(self) -> np.ndarray:
         """Convert to numpy array for model input."""
         return self.histogram.astype(np.float32)
 
@@ -265,7 +265,6 @@ class EntropyFeatures:
     rodata_section_entropy: float
     text_section_entropy: float
 
-
     # Entropy statistics
     min_section_entropy: float
     max_section_entropy: float
@@ -279,7 +278,7 @@ class EntropyFeatures:
     # Entropy-based ratios
     entropy_variance: float  # Variance of section entropies
 
-    def to_array(self) -> np.ndarray:
+    def to_input_layer_format(self) -> np.ndarray:
         """Convert to numpy array for model input."""
         features = [
             self.overall_entropy,
@@ -365,7 +364,7 @@ class APIFeatures:
     max_string_length: int
     min_string_length: int
 
-    def to_array(self) -> np.ndarray:
+    def to_input_layer_format(self) -> np.ndarray:
         """Convert to numpy array for model input."""
         # API counts (convert dict values to list in consistent order)
         api_features = []
@@ -453,7 +452,7 @@ class APIFeatures:
             "max_string_length": self.max_string_length,
             "min_string_length": self.min_string_length,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "APIFeatures":
         return cls(
@@ -557,30 +556,32 @@ class BinaryFeatures:
             + len(self.api_features.get_feature_names())
         )
 
-    def to_array(self) -> np.ndarray:
+    def to_input_layer_format(self) -> np.ndarray:
         """Convert all features to a single concatenated array."""
         return np.concatenate(
             [
                 np.array([self.file_size], dtype=np.int64),
-                self.pe_features.to_array(),
-                self.byte_histogram.to_array(),
-                self.entropy_features.to_array(),
-                self.api_features.to_array(),
+                self.pe_features.to_input_layer_format(),
+                self.byte_histogram.to_input_layer_format(),
+                self.entropy_features.to_input_layer_format(),
+                self.api_features.to_input_layer_format(),
             ]
         )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "is_malware": self.is_malware,
             "file_size": self.file_size,
             "pe_features": self.pe_features.to_dict(),
             "byte_histogram": self.byte_histogram.to_dict(),
             "entropy_features": self.entropy_features.to_dict(),
             "api_features": self.api_features.to_dict(),
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BinaryFeatures":
         return cls(
+            is_malware=data["is_malware"],
             file_size=data["file_size"],
             pe_features=PEFeatures.from_dict(data["pe_features"]),
             byte_histogram=ByteHistogramFeatures.from_dict(data["byte_histogram"]),
@@ -591,7 +592,7 @@ class BinaryFeatures:
     def get_feature_names(self) -> List[str]:
         """Get all feature names in order."""
         return (
-            ["file_size"]
+            ["is_malware", "file_size"]
             + self.pe_features.get_feature_names()
             + self.byte_histogram.get_feature_names()
             + self.entropy_features.get_feature_names()
@@ -601,6 +602,7 @@ class BinaryFeatures:
     def get_feature_sizes(self) -> Dict[str, int]:
         """Get the size of each feature group."""
         return {
+            "is_malware": 1,
             "file_size": 1,
             "pe_features": len(self.pe_features.get_feature_names()),
             "byte_histogram": len(self.byte_histogram.get_feature_names()),
@@ -616,6 +618,7 @@ class BinaryFeatures:
         api_size = len(self.api_features.get_feature_names())
 
         return {
+            "is_malware": (0, 1),
             "file_size": (0, 1),
             "pe_features": (1, 1 + pe_size),
             "byte_histogram": (pe_size, pe_size + byte_size),
