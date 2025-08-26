@@ -19,7 +19,7 @@ features-input-layer-building:
 	python src/Immune/features/input_layer_formatter.py
 
 train:
-	python src/train.py
+	python src/train.py --device cuda
 
 lint:
 	ruff check src/ tests/

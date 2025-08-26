@@ -1,8 +1,9 @@
 """Visualization utilities for malware detection results."""
 
+import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -242,5 +243,28 @@ def create_training_report(
         f.write("=" * 50 + "\n\n")
         for metric_name, value in metrics.items():
             f.write(f"{metric_name}: {value:.4f}\n")
+
+    console.print(f"[green]✅ Training report saved to {save_dir}[/green]")
+
+
+def create_xgb_training_report(eval_result: Dict[str, Any], save_dir: Path) -> None:
+    """Create a comprehensive training report with multiple plots."""
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print("[bold blue]📊 Creating training report...[/bold blue]")
+
+    # Plot training history
+    train_loss = eval_result["train"]["logloss"]
+    val_loss = eval_result["val"]["logloss"]
+    history = {"train_losses": train_loss, "val_losses": val_loss}
+    plot_training_history(history, save_path=save_dir / "xgb_training_history.png", show_plot=False)
+
+    metrics_file = save_dir / "xgb_metrics.txt"
+    with open(metrics_file, "w") as f:
+        f.write("Training Report\n")
+        f.write("=" * 50 + "\n\n")
+        f.write(json.dumps(eval_result, indent=4))
+        # for metric_name, value in eval_result.items():
+        #     f.write(f"{metric_name}: {value:.4f}\n")
 
     console.print(f"[green]✅ Training report saved to {save_dir}[/green]")

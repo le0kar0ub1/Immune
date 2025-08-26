@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import numpy as np
 import torch
 from rich.console import Console
 from rich.logging import RichHandler
@@ -14,13 +13,14 @@ from torch.utils.data import DataLoader, random_split
 # Add src to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from Immune.models.malware_detector import (
+from Immune.models.dnn_malware_detector import (
+    DNNMalwareDetector,
     MalwareDataset,
-    MalwareDetector,
-    evaluate_model,
-    train_model,
+    evaluate_dnn_model,
+    train_dnn_model,
 )
-from Immune.utils.visualization import create_training_report
+from Immune.models.xgb_malware_detector import train_xgb_model
+from Immune.utils.visualization import create_training_report, create_xgb_training_report
 
 console = Console()
 
@@ -35,7 +35,7 @@ def setup_logging(level: str = "INFO") -> None:
     )
 
 
-def load_features_from_json(features_file: Path) -> Tuple[np.ndarray, np.ndarray]:
+def load_features_from_json(features_file: Path) -> Tuple[Dict[str, Dict[str, Any]], int]:
     """Load pre-computed features from JSON file.
 
     Args:
@@ -53,12 +53,11 @@ def load_features_from_json(features_file: Path) -> Tuple[np.ndarray, np.ndarray
         with open(features_file, "r") as f:
             data = json.load(f)
 
+        feature_nbr = len(data[list(data.keys())[0]]["feature_array"])
         console.print(f"[green]✅ Loaded {len(data.keys())} samples[/green]")
-        console.print(
-            f"[green]✅ Feature vector size: {len(data[list(data.keys())[0]]['feature_array'])}[/green]"
-        )
+        console.print(f"[green]✅ Feature vector size: {feature_nbr}[/green]")
 
-        return data
+        return data, feature_nbr
 
     except Exception as e:
         raise ValueError(f"Failed to load features from {features_file}") from e
@@ -109,7 +108,7 @@ def prepare_data_loaders(
     return train_loader, val_loader, test_loader
 
 
-def run_training_pipeline(
+def run_dnn_training_pipeline(
     features_file: Path,
     model_save_path: Path,
     reports_dir: Path,
@@ -141,22 +140,22 @@ def run_training_pipeline(
     console.print("[bold blue]🚀 Starting complete training pipeline...[/bold blue]")
 
     # Load pre-computed features
-    features = load_features_from_json(features_file)
+    features, feature_nbr = load_features_from_json(features_file)
 
     # Prepare data loaders
     train_loader, val_loader, test_loader = prepare_data_loaders(
         features, train_ratio, val_ratio, batch_size
     )
 
-    # Initialize model using existing MalwareDetector class
-    model = MalwareDetector()
+    # Initialize model using existing DNNMalwareDetector class
+    model = DNNMalwareDetector(layers=[feature_nbr, 128, 64, 1])
     console.print(
         f"[green]✅ Model initialized with {sum(p.numel() for p in model.parameters()):,} parameters[/green]"
     )
 
-    # Train model using existing train_model function
+    # Train model using existing train_dnn_model function
     console.print(f"[bold blue]🚀 Starting training on {device}[/bold blue]")
-    history = train_model(
+    history = train_dnn_model(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
@@ -171,9 +170,9 @@ def run_training_pipeline(
     model.save_model(model_save_path)
     console.print(f"[green]✅ Model saved to {model_save_path}[/green]")
 
-    # Evaluate model using existing evaluate_model function
+    # Evaluate model using existing evaluate_dnn_model function
     console.print("[yellow]📊 Evaluating model on test set...[/yellow]")
-    metrics = evaluate_model(model, test_loader, device)
+    metrics = evaluate_dnn_model(model, test_loader, device)
 
     # Create training report
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -191,10 +190,39 @@ def run_training_pipeline(
     }
 
     create_training_report(history, report_metrics, reports_dir)
-    console.print(f"[green]✅ Training report saved to {reports_dir}[/green]")
 
     console.print("[bold green]🎉 Training pipeline completed successfully![/bold green]")
     return history
+
+
+def run_xgb_training_pipeline(
+    features_file: Path,
+    model_save_path: Path,
+    reports_dir: Path,
+    train_ratio: float = 0.7,
+    val_ratio: float = 0.15,
+) -> Dict[str, List[float]]:
+    """Run the complete training pipeline using pre-computed features."""
+    console.print("[bold blue]🚀 Starting complete training pipeline...[/bold blue]")
+
+    # Load pre-computed features
+    features, feature_nbr = load_features_from_json(features_file)
+
+    # Prepare data loaders
+    train_loader, val_loader, test_loader = prepare_data_loaders(features, train_ratio, val_ratio)
+
+    # Train model using existing train_xgb_model function
+    console.print("[bold blue]🚀 Starting training XGBoost model[/bold blue]")
+    results = train_xgb_model(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        test_loader=test_loader,
+    )
+
+    create_xgb_training_report(results, reports_dir)
+
+    console.print("[bold green]🎉 Training pipeline completed successfully![/bold green]")
+    return results
 
 
 def main() -> None:
@@ -220,18 +248,18 @@ def main() -> None:
         default=Path("reports/"),
         help="Directory to save training reports",
     )
-    parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=1000, help="Number of training epochs")
     parser.add_argument(
-        "--learning-rate", type=float, default=0.001, help="Learning rate for optimization"
+        "--learning-rate", type=float, default=0.01, help="Learning rate for optimization"
     )
     parser.add_argument(
         "--device", default="cpu", choices=["cpu", "cuda"], help="Device to train on"
     )
     parser.add_argument(
-        "--train-ratio", type=float, default=0.7, help="Fraction of data to use for training"
+        "--train-ratio", type=float, default=0.8, help="Fraction of data to use for training"
     )
     parser.add_argument(
-        "--val-ratio", type=float, default=0.15, help="Fraction of data to use for validation"
+        "--val-ratio", type=float, default=0.1, help="Fraction of data to use for validation"
     )
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size for training")
     parser.add_argument(
@@ -258,20 +286,40 @@ def main() -> None:
             sys.exit(1)
 
         # Run training pipeline
-        run_training_pipeline(
+        console.print("[bold blue]🚀 Starting training with hyperparameters:[/bold blue]")
+        console.print(f"[bold blue]     Features file: {args.features_file}[/bold blue]")
+        console.print(f"[bold blue]     Model save path: {args.model_save_path}[/bold blue]")
+        console.print(f"[bold blue]     Reports dir: {args.reports_dir}[/bold blue]")
+        console.print(f"[bold blue]     Train ratio: {args.train_ratio}[/bold blue]")
+        console.print(f"[bold blue]     Val ratio: {args.val_ratio}[/bold blue]")
+        console.print(f"[bold blue]     Epochs: {args.epochs}[/bold blue]")
+        console.print(f"[bold blue]     Learning rate: {args.learning_rate}[/bold blue]")
+        console.print(f"[bold blue]     Device: {args.device}[/bold blue]")
+        console.print(f"[bold blue]     Batch size: {args.batch_size}[/bold blue]")
+        console.print(
+            f"[bold blue]     Early stopping patience: {args.early_stopping_patience}[/bold blue]"
+        )
+
+        # run_dnn_training_pipeline(
+        #     features_file=args.features_file,
+        #     model_save_path=args.model_save_path,
+        #     reports_dir=args.reports_dir,
+        #     train_ratio=args.train_ratio,
+        #     val_ratio=args.val_ratio,
+        #     epochs=args.epochs,
+        #     learning_rate=args.learning_rate,
+        #     device=args.device,
+        #     batch_size=args.batch_size,
+        #     early_stopping_patience=args.early_stopping_patience,
+        # )
+
+        run_xgb_training_pipeline(
             features_file=args.features_file,
             model_save_path=args.model_save_path,
             reports_dir=args.reports_dir,
             train_ratio=args.train_ratio,
             val_ratio=args.val_ratio,
-            epochs=args.epochs,
-            learning_rate=args.learning_rate,
-            device=args.device,
-            batch_size=args.batch_size,
-            early_stopping_patience=args.early_stopping_patience,
         )
-
-        console.print("[bold green]🎉 Training completed successfully![/bold green]")
 
     except Exception as e:
         console.print(f"[red]❌ Training failed: {str(e)}[/red]")
