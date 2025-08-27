@@ -109,7 +109,7 @@ def extract_features_from_directory(
     # Thread-safe counter for successful and failed extractions
     successful_extractions = 0
     failed_extractions = 0
-
+    failed_files = []
     # Prepare arguments for threading
     thread_args = []
     for i, file_path in enumerate(files_to_process, 1):
@@ -137,12 +137,12 @@ def extract_features_from_directory(
                     save_features(features_dir, features)
             else:
                 failed_extractions += 1
-
+                failed_files.append(file_name)
     logger.info(
         f"Feature extraction completed: {successful_extractions} successful, {failed_extractions} failed"
     )
     save_features(features_dir, features)
-    return features
+    return features, failed_files
 
 
 def main():
@@ -188,14 +188,14 @@ def main():
 
     try:
         # Extract features
-        malware_features_list = extract_features_from_directory(
+        malware_features_list, malware_failed_files = extract_features_from_directory(
             input_dir=args.input_dir_malware,
             is_malware=True,
             file_extensions=args.extensions,
             max_files=args.max_files,
         )
 
-        benign_features_list = extract_features_from_directory(
+        benign_features_list, benign_failed_files = extract_features_from_directory(
             input_dir=args.input_dir_benign,
             is_malware=False,
             file_extensions=args.extensions,
@@ -211,6 +211,8 @@ def main():
         logger.info("Feature extraction summary:")
         logger.info(f"  Total files: {len(features_list)}")
         logger.info(f"  Results saved to: {args.output}")
+        logger.info(f"  Malware failed files: {malware_failed_files}")
+        logger.info(f"  Benign failed files: {benign_failed_files}")
 
     except Exception as e:
         logger.error(f"Feature extraction failed: {e}")

@@ -35,12 +35,12 @@ def plot_training_history(
     epochs = range(1, len(history["train_losses"]) + 1)
 
     plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history["train_losses"], "b-", label="Training Loss", linewidth=2)
-    plt.plot(epochs, history["val_losses"], "r-", label="Validation Loss", linewidth=2)
+    for key, value in history.items():
+        plt.plot(epochs, value, label=key, linewidth=2)
 
-    plt.title("Training and Validation Loss", fontsize=14, fontweight="bold")
+    plt.title("Training and Validation plots", fontsize=14, fontweight="bold")
     plt.xlabel("Epoch", fontsize=12)
-    plt.ylabel("Loss", fontsize=12)
+    plt.ylabel("Value", fontsize=12)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.3)
 
@@ -256,7 +256,14 @@ def create_xgb_training_report(eval_result: Dict[str, Any], save_dir: Path) -> N
     # Plot training history
     train_loss = eval_result["train"]["logloss"]
     val_loss = eval_result["val"]["logloss"]
-    history = {"train_losses": train_loss, "val_losses": val_loss}
+    train_error = eval_result["train"]["error"]
+    val_error = eval_result["val"]["error"]
+    history = {
+        "train_losses": train_loss,
+        "val_losses": val_loss,
+        "train_error": train_error,
+        "val_error": val_error,
+    }
     plot_training_history(history, save_path=save_dir / "xgb_training_history.png", show_plot=False)
 
     metrics_file = save_dir / "xgb_metrics.txt"

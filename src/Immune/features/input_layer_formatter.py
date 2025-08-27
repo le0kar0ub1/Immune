@@ -1,5 +1,6 @@
 """Input layer formatter for transforming BinaryFeatures to model-ready arrays."""
 
+import argparse
 import json
 from typing import Any, Dict
 
@@ -79,7 +80,18 @@ class InputLayerFormatter:
 
 
 obj = InputLayerFormatter()
-features = obj.features_from_file("data/features.json")
-formatted_features = obj.format_features_dict(features)
-with open("data/formatted_features.json", "w") as f:
-    json.dump(formatted_features, f)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Format features for input layer")
+    parser.add_argument(
+        "--input", "-i", type=str, required=True, help="Path to the input features file"
+    )
+    parser.add_argument(
+        "--output", "-o", type=str, required=True, help="Path to the output formatted features file"
+    )
+    args = parser.parse_args()
+
+    features = obj.features_from_file(args.input)
+    formatted_features = obj.format_features_dict(features)
+    with open(args.output, "w") as f:
+        json.dump(formatted_features, f)

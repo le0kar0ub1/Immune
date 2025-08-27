@@ -53,14 +53,41 @@ def load_features_from_json(features_file: Path) -> Tuple[Dict[str, Dict[str, An
         with open(features_file, "r") as f:
             data = json.load(f)
 
-        feature_nbr = len(data[list(data.keys())[0]]["feature_array"])
-        console.print(f"[green]✅ Loaded {len(data.keys())} samples[/green]")
+        if "features" in data and "labels" in data:
+            feature_nbr = len(data["features"][0])
+            sample_nbr = len(data["features"])
+        elif "feature_array" in data[0] and "is_malware" in data[0]:
+            feature_nbr = len(data[0]["feature_array"])
+            sample_nbr = len(data)
+        else:
+            raise ValueError("Invalid features format")
+
+        console.print(f"[green]✅ Loaded {sample_nbr} samples[/green]")
         console.print(f"[green]✅ Feature vector size: {feature_nbr}[/green]")
 
         return data, feature_nbr
 
     except Exception as e:
         raise ValueError(f"Failed to load features from {features_file}") from e
+
+
+def prepare_data_loader(
+    features: Dict[str, Dict[str, Any]], batch_size: int = 64, shuffle: bool = True
+) -> DataLoader:
+    """Prepare data loader for training, validation, and testing.
+
+    Args:
+        features: Feature array
+        labels: Label array
+        batch_size: Batch size for data loaders
+        shuffle: Whether to shuffle data
+
+    Returns:
+        DataLoader
+    """
+    dataset = MalwareDataset(features)
+    console.print(f"[green]✅ Dataset size: {len(dataset)}[/green]")
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
 def prepare_data_loaders(
@@ -98,8 +125,8 @@ def prepare_data_loaders(
 
     # Create data loaders
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle_train)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
     console.print(
         f"[green]✅ Data split: Train={len(train_dataset)}, Val={len(val_dataset)}, Test={len(test_dataset)}[/green]"
@@ -144,7 +171,7 @@ def run_dnn_training_pipeline(
 
     # Prepare data loaders
     train_loader, val_loader, test_loader = prepare_data_loaders(
-        features, train_ratio, val_ratio, batch_size
+        features, train_ratio, val_ratio, batch_size, shuffle_train=True
     )
 
     # Initialize model using existing DNNMalwareDetector class
@@ -197,6 +224,7 @@ def run_dnn_training_pipeline(
 
 def run_xgb_training_pipeline(
     features_file: Path,
+    features_file_valtest: Path,
     model_save_path: Path,
     reports_dir: Path,
     train_ratio: float = 0.7,
@@ -207,9 +235,13 @@ def run_xgb_training_pipeline(
 
     # Load pre-computed features
     features, feature_nbr = load_features_from_json(features_file)
+    features_valtest, feature_nbr_valtest = load_features_from_json(features_file_valtest)
 
     # Prepare data loaders
-    train_loader, val_loader, test_loader = prepare_data_loaders(features, train_ratio, val_ratio)
+    # train_loader, val_loader, test_loader = prepare_data_loaders(features, train_ratio, val_ratio)
+    train_loader = prepare_data_loader(features, batch_size=64, shuffle=True)
+    val_loader = prepare_data_loader(features_valtest, batch_size=64, shuffle=False)
+    test_loader = prepare_data_loader(features_valtest, batch_size=64, shuffle=False)
 
     # Train model using existing train_xgb_model function
     console.print("[bold blue]🚀 Starting training XGBoost model[/bold blue]")
@@ -233,7 +265,13 @@ def main() -> None:
     parser.add_argument(
         "--features-file",
         type=Path,
-        default=Path("data/formatted_features.json"),
+        default=Path("data/ember/train_features_1.json"),
+        help="Path to features.json file containing pre-computed features",
+    )
+    parser.add_argument(
+        "--features-file-valtest",
+        type=Path,
+        default=Path("data/ember/test_features.json"),
         help="Path to features.json file containing pre-computed features",
     )
     parser.add_argument(
@@ -315,6 +353,7 @@ def main() -> None:
 
         run_xgb_training_pipeline(
             features_file=args.features_file,
+            features_file_valtest=args.features_file_valtest,
             model_save_path=args.model_save_path,
             reports_dir=args.reports_dir,
             train_ratio=args.train_ratio,

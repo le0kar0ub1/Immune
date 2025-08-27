@@ -12,11 +12,23 @@ fetch-sorel:
 process-assemblage:
 	python src/Immune/data/process_assemblage.py
 
+process-valtest:
+	python src/Immune/data/process_dike_valtest.py
+
 features-extraction:
 	python src/features.py -im data/sorel20M -ib data/assemblagePE --output=data/features.json
 
-features-input-layer-building:
-	python src/Immune/features/input_layer_formatter.py
+features-extraction-valtest:
+	python src/features.py -im data/DikeDataset-ValTest/benign -ib data/DikeDataset-ValTest/malware --output=data/DikeDataset-ValTest/features.json
+
+features-input-layer-building-train-set:
+	python src/Immune/features/input_layer_formatter.py -i data/features.json -o data/formatted_features.json
+
+features-input-layer-building-valtest-set:
+	python src/Immune/features/input_layer_formatter.py -i data/DikeDataset-ValTest/features.json -o data/DikeDataset-ValTest/formatted_features.json
+
+ember-features-building:
+	python src/ember/ember_build.py
 
 train:
 	python src/train.py --device cuda

@@ -49,6 +49,7 @@ class FeatureExtractor:
         except Exception as e:
             logger.warning(f"Failed to parse {file_path} as PE file: {e}")
             self.pe = None
+            raise e
 
         # Extract each feature type
         logger.debug(f"Extracting PE features from {file_path}")
