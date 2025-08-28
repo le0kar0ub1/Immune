@@ -21,8 +21,14 @@ We extracted approximately 350 features per sample, including:
 #### First Attempt: Deep Neural Network
 Our initial approach used a DNN architecture. The results were... disappointing. Performance was essentially random guessing, suggesting our feature representation or model architecture wasn't capturing the underlying patterns.
 
+![doc/custom_dnn_perf.png](doc/custom_dnn_perf.png)
+
 #### Pivot to XGBoost
 We switched to XGBoost to establish a baseline. The results were surprisingly good... too good. This raised our suspicions about potential dataset bias.
+
+![doc/custom_xgboost_perf.png](doc/custom_xgboost_perf.png)
+
+(Yeah... the curves are overlapping)
 
 #### Reality Check: External Validation
 To validate our results, we brought in a test dataset from another source that combined malware and benign samples. The performance dropped to random guessing levels, revealing a critical insight: **our original dataset was biased because malware and benign samples came from different distributions**.
@@ -44,10 +50,34 @@ The results were impressive:
 
 These results are particularly noteworthy when compared to the [Ember paper](https://arxiv.org/pdf/1804.04637), where we achieved similar performance with significantly less data and training time.
 
-#### DNN Redux
+```text
+[0]	train-logloss:0.63494	train-error:0.43509	train-auc:0.91353	train-aucpr:0.92833	val-logloss:0.66717	val-error:0.48960	val-auc:0.78727	val-aucpr:0.73855
+[20]	train-logloss:0.26684	train-error:0.08633	train-auc:0.97676	train-aucpr:0.98215	val-logloss:0.42493	val-error:0.15260	val-auc:0.92867	val-aucpr:0.91742
+[40]	train-logloss:0.19487	train-error:0.06774	train-auc:0.98462	train-aucpr:0.98816	val-logloss:0.35501	val-error:0.12540	val-auc:0.94704	val-aucpr:0.93958
+....
+[900]	train-logloss:0.01028	train-error:0.00004	train-auc:1.00000	train-aucpr:1.00000	val-logloss:0.19552	val-error:0.07600	val-auc:0.97922	val-aucpr:0.98020
+[920]	train-logloss:0.00977	train-error:0.00004	train-auc:1.00000	train-aucpr:1.00000	val-logloss:0.19576	val-error:0.07400	val-auc:0.97907	val-aucpr:0.97987
+[940]	train-logloss:0.00930	train-error:0.00004	train-auc:1.00000	train-aucpr:1.00000	val-logloss:0.19619	val-error:0.07320	val-auc:0.97894	val-aucpr:0.97985
+[948]	train-logloss:0.00910	train-error:0.00004	train-auc:1.00000	train-aucpr:1.00000	val-logloss:0.19575	val-error:0.07360	val-auc:0.97895	val-aucpr:0.97989
+Threshold: 0.8904, FPR: 0.009960, TPR: 0.7426
+Test Accuracy: 0.8668
+```
+
+![doc/ember_xgboost_perf.png](doc/ember_xgboost_perf.png)
+
+#### DNN Attempt & Scaling Laws
 We revisited deep learning with the Ember dataset, but results remained suboptimal:
 - **Accuracy**: ~60%
 - **False Positive Rate**: < 50%
+- **Learning Rate**: 0.001
+- **Batch Size**: 1024
+- **Hidden Layers**: 1
+- **Weight Decay**: 1e-5
+
+The training curves are not smooth, and the accuracy is pretty bad.
+Here is a plot for 3 different hidden layers size (64, 256, 512). The 256 looks like the best one for this setup at least
+
+![doc/ember_dnn_perf.png](doc/ember_dnn_perf.png)
 
 ## Key Lessons Learned
 
