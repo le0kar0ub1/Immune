@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -234,15 +235,26 @@ def create_training_report(
     console.print("[bold blue]📊 Creating training report...[/bold blue]")
 
     # Plot training history
-    plot_training_history(history, save_path=save_dir / "training_history.png", show_plot=False)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    if history is not None:
+        plot_training_history(
+            history, save_path=save_dir / f"{timestamp}_training_history.png", show_plot=False
+        )
 
     # Save metrics to file
-    metrics_file = save_dir / "metrics.txt"
+    metrics_file = save_dir / f"{timestamp}_metrics.txt"
     with open(metrics_file, "w") as f:
         f.write("Training Report\n")
         f.write("=" * 50 + "\n\n")
         for metric_name, value in metrics.items():
             f.write(f"{metric_name}: {value:.4f}\n")
+        f.write("\n")
+        f.write("Training history:\n")
+        f.write("=" * 50 + "\n\n")
+        if history is not None:
+            for key, value in history.items():
+                f.write(f"{key}: {value}\n")
+        f.write("\n")
 
     console.print(f"[green]✅ Training report saved to {save_dir}[/green]")
 

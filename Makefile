@@ -31,7 +31,13 @@ ember-features-building:
 	python src/ember/ember_build.py
 
 train:
-	python src/train.py --device cuda
+	python src/train.py --device cuda --learning-rate 0.0005 --epochs 200 --batch-size 1024
+
+evaluate:
+	python src/train.py --device cuda --evaluate
+
+scaling-laws-mode:
+	python src/train.py --device cuda --learning-rate 0.0005 --epochs 200 --batch-size 1024 --parallel-setups --max-parallel-workers 5
 
 lint:
 	ruff check src/ tests/

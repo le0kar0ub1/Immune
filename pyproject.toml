@@ -33,6 +33,7 @@ dependencies = [
     "rich>=13.0.0",
     "colorama>=0.4.6",
     "pyzipper>=0.3.6",
+    "xgboost>=1.7.6",
 ]
 
 [project.optional-dependencies]
