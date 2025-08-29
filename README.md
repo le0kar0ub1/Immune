@@ -2,6 +2,8 @@
 
 A chronological journey through building malware detection models, from custom datasets to established benchmarks.
 
+This project focus on PE windows file and static analysi only using features extracted from binaries.
+
 ## The Journey
 
 ### Phase 1: Building Our Own Dataset (The Hard Way)
@@ -42,13 +44,13 @@ After the sobering results with our custom dataset, we decided to use the establ
 We created a manageable subset of 100K samples with 700 features.
 
 #### XGBoost Success
-The results were impressive:
+The results were quite good:
 - **Accuracy**: ~87%
 - **False Positive Rate**: < 1%
 - **Training Time**: Few dozen seconds
 - **Data Usage**: 10x less than our original attempt
 
-These results are particularly noteworthy when compared to the [Ember paper](https://arxiv.org/pdf/1804.04637), where we achieved similar performance with significantly less data and training time.
+These results are very faire when compared to the [Ember paper](https://arxiv.org/pdf/1804.04637), where the achieved this performance with significantly less data and training time.
 
 ```text
 [0]	train-logloss:0.63494	train-error:0.43509	train-auc:0.91353	train-aucpr:0.92833	val-logloss:0.66717	val-error:0.48960	val-auc:0.78727	val-aucpr:0.73855

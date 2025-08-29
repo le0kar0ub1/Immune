@@ -673,52 +673,52 @@ def main() -> None:
             f"[bold blue]     Early stopping patience: {args.early_stopping_patience}[/bold blue]"
         )
 
-        # if args.evaluate:
-        #     run_dnn_evaluation_pipeline(
-        #         features_file_valtest=args.features_file_valtest,
-        #         model_save_path=args.model_save_path,
-        #         reports_dir=args.reports_dir,
-        #         device=device,
-        #     )
-        # elif args.parallel_setups:
-        #     console.print(
-        #         f"[bold blue]🚀 Running parallel setups mode with max workers: {args.max_parallel_workers or 'auto'}[/bold blue]"
-        #     )
-        #     run_dnn_training_pipeline_with_setups(
-        #         features_file=args.features_file,
-        #         features_file_valtest=args.features_file_valtest,
-        #         model_save_path=args.model_save_path,
-        #         reports_dir=args.reports_dir,
-        #         epochs=args.epochs,
-        #         learning_rate=args.learning_rate,
-        #         device=device,
-        #         batch_size=args.batch_size,
-        #         weight_decay=1e-5,
-        #         max_parallel_workers=args.max_parallel_workers,
-        #     )
-        # else:
-        #     run_dnn_training_pipeline(
-        #         features_file=args.features_file,
-        #         features_file_valtest=args.features_file_valtest,
-        #         model_save_path=args.model_save_path,
-        #         reports_dir=args.reports_dir,
-        #         train_ratio=args.train_ratio,
-        #         val_ratio=args.val_ratio,
-        #         epochs=args.epochs,
-        #         learning_rate=args.learning_rate,
-        #         device=device,
-        #         batch_size=args.batch_size,
-        #         early_stopping_patience=args.early_stopping_patience,
-        #     )
+        if args.evaluate:
+            run_dnn_evaluation_pipeline(
+                features_file_valtest=args.features_file_valtest,
+                model_save_path=args.model_save_path,
+                reports_dir=args.reports_dir,
+                device=device,
+            )
+        elif args.parallel_setups:
+            console.print(
+                f"[bold blue]🚀 Running parallel setups mode with max workers: {args.max_parallel_workers or 'auto'}[/bold blue]"
+            )
+            run_dnn_training_pipeline_with_setups(
+                features_file=args.features_file,
+                features_file_valtest=args.features_file_valtest,
+                model_save_path=args.model_save_path,
+                reports_dir=args.reports_dir,
+                epochs=args.epochs,
+                learning_rate=args.learning_rate,
+                device=device,
+                batch_size=args.batch_size,
+                weight_decay=1e-5,
+                max_parallel_workers=args.max_parallel_workers,
+            )
+        else:
+            run_dnn_training_pipeline(
+                features_file=args.features_file,
+                features_file_valtest=args.features_file_valtest,
+                model_save_path=args.model_save_path,
+                reports_dir=args.reports_dir,
+                train_ratio=args.train_ratio,
+                val_ratio=args.val_ratio,
+                epochs=args.epochs,
+                learning_rate=args.learning_rate,
+                device=device,
+                batch_size=args.batch_size,
+                early_stopping_patience=args.early_stopping_patience,
+            )
 
-        run_xgb_training_pipeline(
-            features_file=args.features_file,
-            features_file_valtest=args.features_file_valtest,
-            model_save_path=args.model_save_path,
-            reports_dir=args.reports_dir,
-            train_ratio=args.train_ratio,
-            val_ratio=args.val_ratio,
-        )
+        # run_xgb_training_pipeline(
+        #     features_file=args.features_file,
+        #     features_file_valtest=args.features_file_valtest,
+        #     model_save_path=args.model_save_path,
+        #     reports_dir=args.reports_dir,
+        #     train_ratio=args.train_ratio,
+        #     val_ratio=args.val_ratio,
+        # )
 
     except Exception as e:
         console.print(f"[red]❌ Training failed: {str(e)}[/red]")
